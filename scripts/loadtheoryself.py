@@ -102,4 +102,16 @@ def load_theory(
     # import pdb; pdb.set_trace()
     return raw_th_data["best_sm"], th_cov, lin_dict_to_keep, quad_dict_to_keep
 
+
+
+def load_fit_results(path_to_fit):
+    """Add description of what this function does"""
+
+    with open(path_to_fit, encoding="utf-8") as f:
+        fit_results = json.load(f)
+
+
+
+
 print(load_theory("ATLAS_tt_13TeV_ljets_2016_Mtt", ["OtG", "OtG*OtG"], "LO"))
+load_fit_results("/data/theorie/maaikeb/smefit_release/results/MC_GLOBAL_NLO_NHO/posterior.json")
