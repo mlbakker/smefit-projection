@@ -16,11 +16,13 @@ import yaml
 
 def load_theory(
     file_name,
-    operators_to_keep,
     order,
-    use_quad = True,
+    use_quad = False,
     use_theory_covmat = True,
-    use_multiplicative_prescription = True,
+    # Now I set the multiplicative prescription to False, because otherwise it does not
+    # work with the calculation in compute_theory_values
+    # Not sure if that is correct with the way the coefficients are given
+    use_multiplicative_prescription = False,
     rotation_matrix = None,
     theory_folder = "/data/theorie/maaikeb/smefit_database/theory"
     ):
@@ -76,42 +78,83 @@ def load_theory(
             if use_multiplicative_prescription:
                 lin_dict[key] = np.divide(lin_dict[key], sm)
 
-    # select corrections to keep
-    def is_to_keep(op1, op2=None):
-        if op2 is None:
-            return op1 in operators_to_keep
-        return op1 in operators_to_keep and op2 in operators_to_keep
-
     # rotate corrections to fitting basis
     if rotation_matrix is not None:
-        lin_dict_to_keep, quad_dict_to_keep = rotate_to_fit_basis(
+        lin_dict_final, quad_dict_final = rotate_to_fit_basis(
             lin_dict, quad_dict, rotation_matrix
         )
     else:
-        lin_dict_to_keep = {k: val for k, val in lin_dict.items() if is_to_keep(k)}
-        quad_dict_to_keep = {
-            k: val
-            for k, val in quad_dict.items()
-            if is_to_keep(k.split("*")[0], k.split("*")[1])
-        }
+        lin_dict_final = lin_dict
+        quad_dict_final = quad_dict
 
     best_sm = np.array(raw_th_data["best_sm"])
     th_cov = np.zeros((best_sm.size, best_sm.size))
     if use_theory_covmat:
         th_cov = raw_th_data["theory_cov"]
     # import pdb; pdb.set_trace()
-    return raw_th_data["best_sm"], th_cov, lin_dict_to_keep, quad_dict_to_keep
+    return raw_th_data["best_sm"], th_cov, lin_dict_final, quad_dict_final
 
 
+def load_fit_results(path_to_fit, operators_to_keep):
+    """
+    Load the fit results corresponding to the operators that we want to keep.
+    Results are taken from the file specified in path_to_fit.
+    NOTE: for quadratic operators, a fit result with quadratic terms is needed.
 
-def load_fit_results(path_to_fit):
-    """Add description of what this function does"""
+    Returns dictionary with the fit results for each operator.
+    """
 
     with open(path_to_fit, encoding="utf-8") as f:
         fit_results = json.load(f)
 
+    fit_results_selection = {}
+
+    for key in fit_results:
+        if f"{key}" in operators_to_keep:
+            fit_results_selection.update({f"{key}": fit_results[key]})
+
+    return fit_results_selection
 
 
+def compute_theory_values(theory_file_name, path_to_fit, order):
+    """
+    Compute Di with the theory data and fit results.
+    """
 
-print(load_theory("ATLAS_tt_13TeV_ljets_2016_Mtt", ["OtG", "OtG*OtG"], "LO"))
-load_fit_results("/data/theorie/maaikeb/smefit_release/results/MC_GLOBAL_NLO_NHO/posterior.json")
+    theory_data = load_theory(theory_file_name, order)
+    sm_values = theory_data[0]
+    smeft_operators = theory_data[2] | theory_data[3]
+
+    fit_data = load_fit_results(path_to_fit, smeft_operators.keys())
+
+    # calculate the mean of the fit results for every coefficient
+    smeft_coefficients = {k: np.mean(i) for k, i in fit_data.items()}
+
+    D = []
+
+
+    for i in range(len(sm_values)):
+
+        d_i = sm_values[i]
+
+        # calculate the product of the coefficient with the operator for every linear correction term
+        for operator in smeft_operators:
+
+            if operator not in smeft_coefficients:
+                print(f"Warning: operator {operator} in theory file but not in fit results")
+
+            else:
+                smeft_corr = smeft_operators[operator][i] * smeft_coefficients[operator]
+                d_i += smeft_corr
+
+        D.append(d_i)
+
+    return D
+
+theory_file = "ATLAS_tt_13TeV_ljets_2016_Mtt"
+fit_path = "/data/theorie/maaikeb/smefit_release/results/MC_GLOBAL_NLO_NHO/posterior.json"
+order = "NLO"
+
+
+print(compute_theory_values(theory_file, fit_path, order))
+
